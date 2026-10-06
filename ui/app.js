@@ -50,7 +50,7 @@ async function refreshScanners() {
     const list = await invoke("list_scanners");
     if (list.length === 0) {
       pill.className = "pill pill-err";
-      pill.textContent = "No scanner — tap to retry";
+      pill.textContent = "No scanner — is it powered on? Tap to retry";
       state.device = null;
       return;
     }
@@ -110,7 +110,7 @@ async function doScan() {
   if (!state.device) {
     await refreshScanners();
     if (!state.device) {
-      toast("No scanner found", true);
+      toast("No scanner found — check that it's powered on and connected", true);
       return;
     }
   }
