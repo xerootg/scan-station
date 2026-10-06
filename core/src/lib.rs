@@ -10,6 +10,7 @@ pub mod job;
 pub mod pdf;
 pub mod preview;
 pub mod scan;
+pub mod status;
 pub mod upload;
 
 pub use config::Config;
