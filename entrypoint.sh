@@ -28,5 +28,25 @@ fi
 sleep 3
 scanimage -L 2>&1 | sed -n '1,10p' || echo "scanimage -L found nothing yet (will retry at scan time)"
 
+# --- pick the KMS display device for cage ---
+# The Pi 4 exposes two DRM nodes: vc4 (the HDMI display, has connectors) and
+# v3d (render-only, no connectors). wlroots must scan out on the vc4 node or its
+# backend aborts ("Unable to start the wlroots backend"). Card numbering can
+# swap across boots, so detect the connector-bearing node rather than hardcode
+# it, and point WLR_DRM_DEVICES at it. GL rendering still uses the render node
+# (renderD128) automatically.
+if [ -z "${WLR_DRM_DEVICES:-}" ]; then
+  for card in /sys/class/drm/card[0-9]*; do
+    cd=$(basename "$card")
+    for conn in "$card/$cd"-*; do
+      if [ -e "$conn" ]; then
+        export WLR_DRM_DEVICES="/dev/dri/$cd"
+        break 2
+      fi
+    done
+  done
+fi
+echo "WLR_DRM_DEVICES=${WLR_DRM_DEVICES:-<unset: no KMS connector found>}"
+
 # --- launch: cage full-screens its single client and exits when it exits ---
 exec cage -- /usr/local/bin/scanstation-app
