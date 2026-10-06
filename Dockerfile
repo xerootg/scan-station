@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libwebkit2gtk-4.1-0 libgtk-3-0 libsoup-3.0-0 librsvg2-2 \
       libgl1-mesa-dri mesa-vulkan-drivers libgles2 libegl1 libgbm1 \
       sane-utils sane-airscan ipp-usb avahi-daemon \
+      udev \
       dbus dbus-x11 fonts-noto-core ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/scanstation-app /usr/local/bin/scanstation-app
