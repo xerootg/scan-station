@@ -1,0 +1,25 @@
+[package]
+name = "scanstation-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tauri shell for scan-station: copier-style touch UI over scanstation-core."
+default-run = "scanstation-app"
+
+[[bin]]
+name = "scanstation-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger = "0.11"
+tempfile = "3"
+scanstation-core = { path = "../core" }

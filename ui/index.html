@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Scan Station</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">Scan&nbsp;Station</div>
+      <div id="scanner" class="pill pill-wait">Looking for scanner…</div>
+      <div class="count">Pages: <span id="pageCount">0</span></div>
+    </header>
+
+    <main class="work">
+      <section class="settings">
+        <h2>Original</h2>
+        <div class="seg" id="source" role="group" aria-label="Source">
+          <button data-val="simplex" class="on">1&#8209;Sided</button>
+          <button data-val="duplex">2&#8209;Sided</button>
+          <button data-val="flatbed">Glass</button>
+        </div>
+
+        <h2>Color</h2>
+        <div class="seg" id="mode" role="group" aria-label="Color">
+          <button data-val="color" class="on">Color</button>
+          <button data-val="gray">Gray</button>
+          <button data-val="lineart">B&amp;W</button>
+        </div>
+
+        <h2>Resolution</h2>
+        <div class="seg" id="resolution" role="group" aria-label="Resolution">
+          <button data-val="150">150</button>
+          <button data-val="200">200</button>
+          <button data-val="300" class="on">300</button>
+        </div>
+      </section>
+
+      <section class="preview">
+        <div class="preview-head">
+          <h2>Document</h2>
+          <span class="hint" id="previewHint">No pages yet — load the feeder and press Scan.</span>
+        </div>
+        <div id="strip" class="strip"></div>
+      </section>
+    </main>
+
+    <footer class="actions">
+      <button id="clearBtn" class="btn btn-danger" disabled>Clear</button>
+      <button id="scanBtn" class="btn btn-primary btn-big">Scan</button>
+      <button id="sendBtn" class="btn btn-success" disabled>Send…</button>
+    </footer>
+
+    <!-- Send dialog -->
+    <div id="sendOverlay" class="overlay hidden">
+      <div class="dialog">
+        <h2>Send document</h2>
+        <label class="field">
+          <span>Title</span>
+          <input id="title" type="text" placeholder="Scanned document" />
+        </label>
+        <div class="field">
+          <span>Destinations</span>
+          <div id="destList" class="dest-list"></div>
+        </div>
+        <label class="field" id="recipientField" hidden>
+          <span>Email to</span>
+          <input id="recipient" type="email" placeholder="(use default recipient)" />
+        </label>
+        <div id="sendResults" class="results"></div>
+        <div class="dialog-actions">
+          <button id="sendCancel" class="btn">Cancel</button>
+          <button id="sendGo" class="btn btn-success">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Busy overlay -->
+    <div id="busy" class="overlay hidden">
+      <div class="spinner"></div>
+      <div id="busyText" class="busy-text">Working…</div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

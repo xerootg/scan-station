@@ -1,0 +1,28 @@
+[package]
+name = "scanstation-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Scanner, PDF assembly, and upload logic for scan-station (no GUI deps)."
+
+[lib]
+name = "scanstation_core"
+path = "src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+log.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+pdf-writer = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "json", "rustls-tls"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder"] }
+base64 = "0.22"
+toml = "0.8"
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
