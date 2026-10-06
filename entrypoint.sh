@@ -28,6 +28,18 @@ fi
 sleep 3
 scanimage -L 2>&1 | sed -n '1,10p' || echo "scanimage -L found nothing yet (will retry at scan time)"
 
+# --- udev: wlroots/libinput enumerate input devices (touchscreen, keyboard)
+# through udev. There is no udevd in a bare container, so start one and populate
+# the device db; otherwise cage aborts with "libinput: no input devices".
+for udevd in /usr/lib/systemd/systemd-udevd /lib/systemd/systemd-udevd; do
+  [ -x "$udevd" ] && { "$udevd" --daemon 2>/dev/null; break; }
+done
+udevadm trigger --action=add 2>/dev/null || true
+udevadm settle --timeout=5 2>/dev/null || true
+# Safety: let cage start even if input enumeration lags; udev hotplug still
+# attaches the touchscreen once it appears.
+export WLR_LIBINPUT_NO_DEVICES=1
+
 # --- pick the KMS display device for cage ---
 # The Pi 4 exposes two DRM nodes: vc4 (the HDMI display, has connectors) and
 # v3d (render-only, no connectors). wlroots must scan out on the vc4 node or its
