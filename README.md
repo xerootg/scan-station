@@ -57,7 +57,7 @@ destination only appears as available in the UI when all its fields are set.
 |-------------|-----------|
 | Paperless   | `PAPERLESS_URL`, `PAPERLESS_TOKEN` |
 | Nextcloud   | `NEXTCLOUD_URL`, `NEXTCLOUD_USER`, `NEXTCLOUD_PASS`, `NEXTCLOUD_FOLDER` (default `Scans`) |
-| Email       | `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, `SMTP_TO`, `SMTP_STARTTLS` (true) |
+| Email       | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` (required); `SMTP_PORT` (587), `SMTP_FROM` (defaults to user), `SMTP_TO` (optional default recipient), `SMTP_STARTTLS` (true), `SMTP_INSECURE_TLS` (false) |
 | Scan default | `SCAN_RESOLUTION` (300) |
 
 For native/desktop use a TOML file at `$SCAN_STATION_CONFIG` (or

@@ -84,11 +84,17 @@ pub struct EmailConfig {
     pub password: String,
     /// From header, e.g. `Scan Station <scans@example.com>`.
     pub from: String,
-    /// Default recipient; the UI may override per job.
+    /// Default recipient; empty means the operator must type one in the UI.
+    #[serde(default)]
     pub to: String,
     /// STARTTLS when true (port 587), implicit TLS otherwise (port 465).
     #[serde(default = "default_true")]
     pub starttls: bool,
+    /// Skip TLS certificate verification. Needed when sending to an internal
+    /// mail server by its cluster/service name while its cert is issued for the
+    /// public mail hostname (name mismatch). LAN-only; off by default.
+    #[serde(default)]
+    pub insecure_tls: bool,
 }
 
 fn default_smtp_port() -> u16 {
@@ -150,23 +156,25 @@ impl Config {
             });
         }
 
-        if let (Some(smtp_host), Some(username), Some(password), Some(from), Some(to)) = (
-            get("SMTP_HOST"),
-            get("SMTP_USER"),
-            get("SMTP_PASS"),
-            get("SMTP_FROM"),
-            get("SMTP_TO"),
-        ) {
+        // Email needs host + credentials; From defaults to the username and the
+        // default recipient is optional (the UI can supply one per job).
+        if let (Some(smtp_host), Some(username), Some(password)) =
+            (get("SMTP_HOST"), get("SMTP_USER"), get("SMTP_PASS"))
+        {
+            let from = get("SMTP_FROM").unwrap_or_else(|| username.clone());
             self.email = Some(EmailConfig {
                 smtp_host,
                 smtp_port: get("SMTP_PORT").and_then(|p| p.parse().ok()).unwrap_or(587),
                 username,
                 password,
                 from,
-                to,
+                to: get("SMTP_TO").unwrap_or_default(),
                 starttls: get("SMTP_STARTTLS")
                     .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
                     .unwrap_or(true),
+                insecure_tls: get("SMTP_INSECURE_TLS")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false),
             });
         }
 
@@ -251,6 +259,22 @@ mod tests {
         let e = cfg.email.expect("email configured");
         assert_eq!(e.smtp_port, 465);
         assert!(!e.starttls);
+    }
+
+    #[test]
+    fn email_from_defaults_to_user_and_to_optional() {
+        let mut cfg = Config::default();
+        cfg.overlay_env(&env(&[
+            ("SMTP_HOST", "mailu-front.mailu.svc.cluster.local"),
+            ("SMTP_USER", "scans@themissing.xyz"),
+            ("SMTP_PASS", "p"),
+            ("SMTP_INSECURE_TLS", "true"),
+        ]));
+        let e = cfg.email.expect("email configured");
+        assert_eq!(e.from, "scans@themissing.xyz"); // defaults to the username
+        assert_eq!(e.to, ""); // optional; UI supplies a recipient
+        assert!(e.insecure_tls);
+        assert!(e.starttls); // default
     }
 
     #[test]

@@ -110,9 +110,18 @@ pub fn to_email(
 ) -> Result<()> {
     use lettre::message::{header, Attachment, MultiPart, SinglePart};
     use lettre::transport::smtp::authentication::Credentials;
+    use lettre::transport::smtp::client::{Tls, TlsParameters};
     use lettre::{Message, SmtpTransport, Transport};
 
-    let to = recipient.unwrap_or(&cfg.to);
+    let to = recipient
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| cfg.to.clone());
+    anyhow::ensure!(
+        !to.trim().is_empty(),
+        "no recipient: set a default (SMTP_TO) or type an address"
+    );
+
     let attachment = Attachment::new(filename.to_string())
         .body(pdf.to_vec(), header::ContentType::parse("application/pdf")?);
 
@@ -128,12 +137,26 @@ pub fn to_email(
         .context("building email")?;
 
     let creds = Credentials::new(cfg.username.clone(), cfg.password.clone());
-    let builder = if cfg.starttls {
-        SmtpTransport::starttls_relay(&cfg.smtp_host)?
+
+    // Build TLS params explicitly so we can (optionally) tolerate an internal
+    // mail server presenting a cert for its public hostname rather than its
+    // in-cluster service name. With insecure_tls=false this verifies normally.
+    let tls_params = TlsParameters::builder(cfg.smtp_host.clone())
+        .dangerous_accept_invalid_certs(cfg.insecure_tls)
+        .dangerous_accept_invalid_hostnames(cfg.insecure_tls)
+        .build()
+        .context("building TLS parameters")?;
+    let tls = if cfg.starttls {
+        Tls::Required(tls_params) // STARTTLS on submission (587)
     } else {
-        SmtpTransport::relay(&cfg.smtp_host)?
+        Tls::Wrapper(tls_params) // implicit TLS (465)
     };
-    let mailer = builder.port(cfg.smtp_port).credentials(creds).build();
+
+    let mailer = SmtpTransport::builder_dangerous(&cfg.smtp_host)
+        .port(cfg.smtp_port)
+        .tls(tls)
+        .credentials(creds)
+        .build();
     mailer.send(&email).context("sending email")?;
     Ok(())
 }

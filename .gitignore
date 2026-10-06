@@ -2,3 +2,6 @@
 **/target
 # Tauri generates this at build time (schemas, etc.)
 src-tauri/gen
+
+# local secrets, never commit
+.env
