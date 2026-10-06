@@ -90,18 +90,115 @@ impl Default for ScanOptions {
     }
 }
 
+/// The value lists a device actually advertises for `--source` and `--mode`
+/// (from `scanimage -d DEV -A`). An empty list means the backend reports no
+/// enumerated values for that option — passing one anyway can crash the backend
+/// (the sane `escl` backend core-dumps on `--source`), so we omit it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeviceCaps {
+    pub sources: Vec<String>,
+    pub modes: Vec<String>,
+}
+
+/// Pull the `a|b|c` value list out of an option line like
+/// `    --source ADF|ADF Duplex [ADF]`. Returns an empty vec for
+/// `{no_stringlist}` (no enumerated values).
+fn option_values(line: &str, opt: &str) -> Option<Vec<String>> {
+    let rest = line.trim().strip_prefix(opt)?;
+    let list = rest.split(" [").next().unwrap_or("").trim();
+    if list.is_empty() || list.contains('{') {
+        return Some(Vec::new());
+    }
+    Some(list.split('|').map(|s| s.trim().to_string()).collect())
+}
+
+/// Parse `scanimage -d DEV -A` output into the advertised source/mode lists.
+pub fn parse_caps(a_output: &str) -> DeviceCaps {
+    let mut caps = DeviceCaps::default();
+    for line in a_output.lines() {
+        if let Some(v) = option_values(line, "--source ") {
+            caps.sources = v;
+        } else if let Some(v) = option_values(line, "--mode ") {
+            caps.modes = v;
+        }
+    }
+    caps
+}
+
+/// Query a device's option lists.
+pub fn device_caps(device: &str) -> anyhow::Result<DeviceCaps> {
+    let out = Command::new("scanimage")
+        .arg("-d")
+        .arg(device)
+        .arg("-A")
+        .output()?;
+    Ok(parse_caps(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Resolve the `--source` value to actually pass, given the device's caps.
+/// `None` means omit the flag (unknown-but-no-list backend).
+fn clamp_source(requested: &str, caps: Option<&DeviceCaps>) -> Option<String> {
+    match caps {
+        None => Some(requested.to_string()),
+        Some(c) if c.sources.is_empty() => None,
+        Some(c) if c.sources.iter().any(|s| s == requested) => Some(requested.to_string()),
+        Some(c) => Some(
+            c.sources
+                .iter()
+                .find(|s| s.as_str() == "ADF")
+                .cloned()
+                .unwrap_or_else(|| c.sources[0].clone()),
+        ),
+    }
+}
+
+/// Resolve the `--mode` value. Lineart isn't offered by the eSCL backends, so
+/// fall back to Gray for a B&W request, else Color.
+fn clamp_mode(requested: &str, caps: Option<&DeviceCaps>) -> Option<String> {
+    match caps {
+        None => Some(requested.to_string()),
+        Some(c) if c.modes.is_empty() => None,
+        Some(c) if c.modes.iter().any(|m| m == requested) => Some(requested.to_string()),
+        Some(c) => {
+            let pref = if requested == "Lineart" {
+                "Gray"
+            } else {
+                "Color"
+            };
+            Some(
+                c.modes
+                    .iter()
+                    .find(|m| m.as_str() == pref)
+                    .or_else(|| c.modes.iter().find(|m| m.as_str() == "Color"))
+                    .cloned()
+                    .unwrap_or_else(|| c.modes[0].clone()),
+            )
+        }
+    }
+}
+
 /// Build the `scanimage` argument vector for a batch (ADF) acquisition writing
 /// JPEG pages to `out_pattern` (a printf-style path like `.../page-%04d.jpg`).
-pub fn build_scanimage_args(opts: &ScanOptions, out_pattern: &str) -> Vec<String> {
+/// When `caps` is provided, the `--source`/`--mode` values are clamped to what
+/// the device advertises (and omitted when it advertises no list).
+pub fn build_scanimage_args(
+    opts: &ScanOptions,
+    out_pattern: &str,
+    caps: Option<&DeviceCaps>,
+) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(dev) = &opts.device {
         args.push("-d".into());
         args.push(dev.clone());
     }
-    args.push("--source".into());
-    args.push(opts.source.sane_source().into());
-    args.push("--mode".into());
-    args.push(opts.mode.sane_mode().into());
+    if let Some(source) = clamp_source(opts.source.sane_source(), caps) {
+        args.push("--source".into());
+        args.push(source);
+    }
+    if let Some(mode) = clamp_mode(opts.mode.sane_mode(), caps) {
+        args.push("--mode".into());
+        args.push(mode);
+    }
     args.push("--resolution".into());
     args.push(opts.resolution.to_string());
     args.push("--format=jpeg".into());
@@ -152,7 +249,21 @@ pub fn parse_device_list(output: &str) -> Vec<ScannerInfo> {
 pub fn list_devices() -> anyhow::Result<Vec<ScannerInfo>> {
     let out = Command::new("scanimage").arg("-L").output()?;
     let text = String::from_utf8_lossy(&out.stdout);
-    Ok(parse_device_list(&text))
+    let mut devices = parse_device_list(&text);
+    // A USB eSCL scanner shows up under two backends: airscan and escl. Prefer
+    // airscan — it advertises proper source/mode lists (incl. ADF Duplex),
+    // whereas the escl backend core-dumps when given a --source. Rank
+    // airscan first, escl last, everything else in between (stable).
+    devices.sort_by_key(|d| {
+        if d.device.starts_with("airscan:") {
+            0
+        } else if d.device.starts_with("escl:") {
+            2
+        } else {
+            1
+        }
+    });
+    Ok(devices)
 }
 
 /// Run one batch acquisition. Returns the JPEG page files produced, in order.
@@ -165,7 +276,9 @@ pub fn scan_batch(opts: &ScanOptions, out_dir: &Path) -> anyhow::Result<Vec<Path
     std::fs::create_dir_all(out_dir)?;
     let pattern = out_dir.join("page-%04d.jpg");
     let pattern = pattern.to_string_lossy().to_string();
-    let args = build_scanimage_args(opts, &pattern);
+    // Clamp source/mode to what this device actually advertises (best-effort).
+    let caps = opts.device.as_deref().and_then(|d| device_caps(d).ok());
+    let args = build_scanimage_args(opts, &pattern, caps.as_ref());
 
     let out = Command::new("scanimage").args(&args).output()?;
     let pages = collect_pages(out_dir)?;
@@ -237,7 +350,7 @@ device `test:0' is a Noname frontend-tester virtual device\n";
             mode: ColorMode::Color,
             resolution: 300,
         };
-        let args = build_scanimage_args(&opts, "/tmp/out/page-%04d.jpg");
+        let args = build_scanimage_args(&opts, "/tmp/out/page-%04d.jpg", None);
         assert_eq!(
             args,
             vec![
@@ -257,9 +370,73 @@ device `test:0' is a Noname frontend-tester virtual device\n";
 
     #[test]
     fn default_device_omits_dash_d() {
-        let args = build_scanimage_args(&ScanOptions::default(), "p-%04d.jpg");
+        let args = build_scanimage_args(&ScanOptions::default(), "p-%04d.jpg", None);
         assert!(!args.contains(&"-d".to_string()));
         assert_eq!(args[0], "--source");
+    }
+
+    #[test]
+    fn parse_caps_reads_airscan_lists() {
+        let a = "    --source ADF|ADF Duplex [ADF]\n    --mode Color|Gray [Color]\n    --resolution 75|300dpi [75]\n";
+        let caps = parse_caps(a);
+        assert_eq!(caps.sources, vec!["ADF", "ADF Duplex"]);
+        assert_eq!(caps.modes, vec!["Color", "Gray"]);
+    }
+
+    #[test]
+    fn parse_caps_escl_no_source_list() {
+        let a = "    --mode Gray|Color [Gray]\n    --source {no_stringlist} [ADF]\n";
+        let caps = parse_caps(a);
+        assert!(caps.sources.is_empty()); // signals: omit --source (escl crashes otherwise)
+        assert_eq!(caps.modes, vec!["Gray", "Color"]);
+    }
+
+    #[test]
+    fn omits_source_when_backend_has_no_list() {
+        // escl-style: empty source list -> no --source emitted (prevents crash)
+        let caps = DeviceCaps {
+            sources: vec![],
+            modes: vec!["Gray".into(), "Color".into()],
+        };
+        let args = build_scanimage_args(&ScanOptions::default(), "p-%04d.jpg", Some(&caps));
+        assert!(!args.iter().any(|a| a == "--source"));
+        assert!(args.windows(2).any(|w| w[0] == "--mode" && w[1] == "Color"));
+    }
+
+    #[test]
+    fn clamps_unsupported_source_and_lineart() {
+        let caps = DeviceCaps {
+            sources: vec!["ADF".into(), "ADF Duplex".into()],
+            modes: vec!["Color".into(), "Gray".into()],
+        };
+        // Flatbed + Lineart aren't supported -> ADF + Gray
+        let opts = ScanOptions {
+            device: None,
+            source: Side::Flatbed,
+            mode: ColorMode::Lineart,
+            resolution: 300,
+        };
+        let args = build_scanimage_args(&opts, "p-%04d.jpg", Some(&caps));
+        assert!(args.windows(2).any(|w| w[0] == "--source" && w[1] == "ADF"));
+        assert!(args.windows(2).any(|w| w[0] == "--mode" && w[1] == "Gray"));
+    }
+
+    #[test]
+    fn supported_duplex_passes_through() {
+        let caps = DeviceCaps {
+            sources: vec!["ADF".into(), "ADF Duplex".into()],
+            modes: vec!["Color".into(), "Gray".into()],
+        };
+        let opts = ScanOptions {
+            device: None,
+            source: Side::Duplex,
+            mode: ColorMode::Color,
+            resolution: 300,
+        };
+        let args = build_scanimage_args(&opts, "p-%04d.jpg", Some(&caps));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "--source" && w[1] == "ADF Duplex"));
     }
 
     #[test]
