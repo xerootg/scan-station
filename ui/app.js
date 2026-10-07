@@ -4,13 +4,14 @@
 const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 
 const state = {
-  source: "simplex",
+  source: "duplex",
   mode: "color",
   resolution: 300,
   device: null,
   destinations: [], // [{id,label,available}]
   selected: new Set(),
   pageCount: 0,
+  scanning: false, // pause status polling during a scan (ipp-usb serializes USB)
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -63,6 +64,7 @@ const KIND_CLASS = {
 };
 
 async function pollStatus() {
+  if (state.scanning) return; // don't contend with the scan for the USB device
   const pill = $("#scanner");
   try {
     const s = await invoke("scanner_status");
@@ -126,6 +128,7 @@ async function doScan() {
       return;
     }
   }
+  state.scanning = true;
   busy(true, "Scanning…");
   try {
     const res = await invoke("scan", {
@@ -142,6 +145,7 @@ async function doScan() {
     toast(String(e), true);
   } finally {
     busy(false);
+    state.scanning = false;
   }
 }
 
