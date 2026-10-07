@@ -42,25 +42,37 @@ function wireSegment(groupId, onPick) {
 }
 
 /* ---- scanner status ---- */
+// Acquire the SANE device to scan with (pill text is driven by pollStatus).
 async function refreshScanners() {
-  const pill = $("#scanner");
-  pill.className = "pill pill-wait";
-  pill.textContent = "Looking for scanner…";
   try {
     const list = await invoke("list_scanners");
-    if (list.length === 0) {
-      pill.className = "pill pill-err";
-      pill.textContent = "No scanner — is it powered on? Tap to retry";
-      state.device = null;
-      return;
-    }
-    state.device = list[0].device;
-    pill.className = "pill pill-ok";
-    pill.textContent = list[0].description || list[0].device;
+    state.device = list.length ? list[0].device : null;
+  } catch (e) {
+    state.device = null;
+  }
+}
+
+// Live device status, copier-style. kind -> pill colour.
+const KIND_CLASS = {
+  ready: "pill-ok",
+  loaded: "pill-ok",
+  busy: "pill-wait",
+  jam: "pill-err",
+  open: "pill-err",
+  offline: "pill-err",
+};
+
+async function pollStatus() {
+  const pill = $("#scanner");
+  try {
+    const s = await invoke("scanner_status");
+    pill.className = "pill " + (KIND_CLASS[s.kind] || "pill-wait");
+    pill.textContent = s.label;
+    if (s.reachable && !state.device) await refreshScanners();
+    if (!s.reachable) state.device = null;
   } catch (e) {
     pill.className = "pill pill-err";
-    pill.textContent = "Scanner error — tap to retry";
-    state.device = null;
+    pill.textContent = "Status unavailable — tap to retry";
   }
 }
 
@@ -226,7 +238,10 @@ async function init() {
   $("#sendBtn").addEventListener("click", openSend);
   $("#sendCancel").addEventListener("click", closeSend);
   $("#sendGo").addEventListener("click", doSend);
-  $("#scanner").addEventListener("click", refreshScanners);
+  $("#scanner").addEventListener("click", async () => {
+    await refreshScanners();
+    await pollStatus();
+  });
 
   try {
     const cfg = await invoke("config_info");
@@ -243,6 +258,8 @@ async function init() {
   }
 
   await refreshScanners();
+  await pollStatus();
+  setInterval(pollStatus, 4000);
   await refreshPages();
 }
 

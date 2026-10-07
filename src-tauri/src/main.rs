@@ -17,6 +17,7 @@ use tauri::State;
 use scanstation_core::config::Destination;
 use scanstation_core::job::{Job, Page};
 use scanstation_core::scan::{self, ScanOptions, ScannerInfo};
+use scanstation_core::status::{self, ScannerStatus};
 use scanstation_core::upload::{self, DocMeta};
 use scanstation_core::Config;
 
@@ -65,6 +66,18 @@ async fn list_scanners() -> Result<Vec<ScannerInfo>, String> {
     tauri::async_runtime::spawn_blocking(scan::list_devices)
         .await
         .map_err(err)?
+        .map_err(err)
+}
+
+/// Live scanner status for the copier-style status pill. Reads the eSCL
+/// ScannerStatus endpoint (ipp-usb exposes it on localhost); override with
+/// SCANNER_ESCL_URL for a network scanner.
+#[tauri::command]
+async fn scanner_status() -> Result<ScannerStatus, String> {
+    let base =
+        std::env::var("SCANNER_ESCL_URL").unwrap_or_else(|_| "http://localhost:60000".to_string());
+    tauri::async_runtime::spawn_blocking(move || status::fetch(&base))
+        .await
         .map_err(err)
 }
 
@@ -211,6 +224,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             config_info,
             list_scanners,
+            scanner_status,
             pages,
             scan,
             delete_page,
