@@ -1,19 +1,22 @@
 //! Trim the trailing blank area from a scanned page.
 //!
 //! The HP ScanJet (over eSCL/airscan) does not auto-size ADF pages: it returns
-//! the full ADF maximum length (~122") with the real page at the top and the
-//! rest padded white. Left alone, a Letter page becomes an 8.5"×122" document.
-//! We detect where content ends and crop the height to it plus a small margin,
-//! keeping full width (the scanner centre-justifies within the page width, so
-//! the width already matches the sheet).
+//! the full ADF scan area (up to ~122") with the real page at the top and the
+//! rest padded — sometimes solid white, sometimes solid black (the backing
+//! roller). Left alone, a Letter page becomes an 8.5"×122" (or ×14") document.
+//! We detect where content ends (the last row with both dark and light pixels)
+//! and crop the height to it plus a small margin, keeping full width.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use image::GenericImageView;
 
-/// A pixel is "content" if its luma is below this (background is ~255 white).
-const CONTENT_THRESHOLD: u8 = 235;
+/// A real content row has both a dark and a light pixel (e.g. ink on paper).
+/// Trailing padding the ADF adds is a solid fill — all white *or* all black
+/// (the backing roller) — so it has only one, and gets trimmed.
+const DARK: u8 = 120;
+const LIGHT: u8 = 200;
 
 /// Crop `path` in place: drop everything below the last content row + margin.
 /// `gray` selects the re-encode colourspace so it matches the PDF image
@@ -26,12 +29,21 @@ pub fn autocrop_trailing_blank(path: &Path, dpi: u32, gray: bool) -> Result<()> 
     }
     let luma = img.to_luma8();
 
-    // Last row (scanning up from the bottom) that has any content pixel.
+    // Last row (scanning up from the bottom) that holds real content: it must
+    // contain both a dark and a light pixel. A solid white or solid black row
+    // is padding, not content.
     let mut content_bottom: Option<u32> = None;
     'rows: for y in (0..h).rev() {
+        let (mut has_dark, mut has_light) = (false, false);
         let mut x = 0;
         while x < w {
-            if luma.get_pixel(x, y)[0] < CONTENT_THRESHOLD {
+            let v = luma.get_pixel(x, y)[0];
+            if v < DARK {
+                has_dark = true;
+            } else if v > LIGHT {
+                has_light = true;
+            }
+            if has_dark && has_light {
                 content_bottom = Some(y);
                 break 'rows;
             }
@@ -81,12 +93,24 @@ mod tests {
     use image::{Rgb, RgbImage};
     use std::io::Cursor;
 
-    fn write_padded(path: &Path, w: u32, content_h: u32, total_h: u32) {
-        // content_h rows of a dark bar at top, white below to total_h
+    // content_h rows of realistic "ink on paper" (white with a dark left bar,
+    // so each content row has both dark and light), then the rest padded with a
+    // solid fill — white or black (the ADF backing) per `pad_black`.
+    fn write_padded(path: &Path, w: u32, content_h: u32, total_h: u32, pad_black: bool) {
+        let pad = if pad_black {
+            Rgb([0, 0, 0])
+        } else {
+            Rgb([255, 255, 255])
+        };
         let mut img = RgbImage::from_pixel(w, total_h, Rgb([255, 255, 255]));
-        for y in 0..content_h {
+        for y in content_h..total_h {
             for x in 0..w {
-                img.put_pixel(x, y, Rgb([10, 10, 10]));
+                img.put_pixel(x, y, pad);
+            }
+        }
+        for y in 0..content_h {
+            for x in 0..40.min(w) {
+                img.put_pixel(x, y, Rgb([10, 10, 10])); // "ink"
             }
         }
         let mut buf = Cursor::new(Vec::new());
@@ -94,21 +118,35 @@ mod tests {
         std::fs::write(path, buf.into_inner()).unwrap();
     }
 
-    #[test]
-    fn trims_trailing_white() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("p.jpg");
-        write_padded(&p, 200, 300, 4000); // content 300px, padded to 4000
-        autocrop_trailing_blank(&p, 150, false).unwrap();
-        let (w, h) = image::ImageReader::open(&p)
+    fn height_of(p: &Path) -> u32 {
+        image::ImageReader::open(p)
             .unwrap()
             .with_guessed_format()
             .unwrap()
             .into_dimensions()
-            .unwrap();
-        assert_eq!(w, 200);
-        // content(300) + margin(30) ≈ 330, well under the original 4000
+            .unwrap()
+            .1
+    }
+
+    #[test]
+    fn trims_trailing_white() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("p.jpg");
+        write_padded(&p, 200, 300, 4000, false);
+        autocrop_trailing_blank(&p, 150, false).unwrap();
+        let h = height_of(&p);
         assert!(h < 500, "expected trimmed height, got {h}");
+        assert!(h >= 300, "must not cut content, got {h}");
+    }
+
+    #[test]
+    fn trims_trailing_black_backing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("b.jpg");
+        write_padded(&p, 200, 300, 4000, true); // black ADF backing below content
+        autocrop_trailing_blank(&p, 150, false).unwrap();
+        let h = height_of(&p);
+        assert!(h < 500, "black backing must be trimmed too, got {h}");
         assert!(h >= 300, "must not cut content, got {h}");
     }
 
@@ -116,22 +154,16 @@ mod tests {
     fn keeps_full_page_untrimmed() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("full.jpg");
-        write_padded(&p, 200, 1000, 1000); // content fills it
+        write_padded(&p, 200, 1000, 1000, false); // content fills it
         autocrop_trailing_blank(&p, 150, false).unwrap();
-        let (_, h) = image::ImageReader::open(&p)
-            .unwrap()
-            .with_guessed_format()
-            .unwrap()
-            .into_dimensions()
-            .unwrap();
-        assert_eq!(h, 1000);
+        assert_eq!(height_of(&p), 1000);
     }
 
     #[test]
     fn blank_page_falls_back_not_huge() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("blank.jpg");
-        write_padded(&p, 200, 0, 4000); // all white
+        write_padded(&p, 200, 0, 4000, false); // all white
         autocrop_trailing_blank(&p, 150, false).unwrap();
         let (_, h) = image::ImageReader::open(&p)
             .unwrap()
