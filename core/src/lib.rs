@@ -6,6 +6,7 @@
 //! these functions to the frontend.
 
 pub mod config;
+pub mod crop;
 pub mod job;
 pub mod pdf;
 pub mod preview;

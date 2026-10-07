@@ -35,7 +35,7 @@ impl Default for ScanDefaults {
         Self {
             resolution: 300,
             mode: ColorMode::Color,
-            source: Side::Simplex,
+            source: Side::Duplex,
         }
     }
 }

@@ -71,6 +71,11 @@ impl Job {
                 .path()
                 .join(format!("page-{:06}-{}.jpg", self.counter, &id[..8]));
             std::fs::copy(src, &dest)?;
+            // ADF pages come back padded to the scanner's max length; trim the
+            // trailing blank so a Letter page isn't an 8.5"x122" document.
+            if let Err(e) = crate::crop::autocrop_trailing_blank(&dest, dpi, gray) {
+                log::warn!("autocrop failed for {}: {e}", dest.display());
+            }
             let thumbnail = preview::thumbnail_data_url(&dest, self.thumb_px)?;
             let (width_px, height_px) = image::ImageReader::open(&dest)?
                 .with_guessed_format()?

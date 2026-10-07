@@ -15,7 +15,7 @@
   --radius: 10px;
 }
 
-* { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+* { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; cursor: none; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
   width: 960px; height: 544px;

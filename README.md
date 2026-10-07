@@ -63,6 +63,25 @@ destination only appears as available in the UI when all its fields are set.
 For native/desktop use a TOML file at `$SCAN_STATION_CONFIG` (or
 `/etc/scan-station/config.toml`) is read first; env vars overlay it.
 
+### Paperless service account (minimal permissions)
+
+Paperless-ngx issues one API token per user, so give the station its **own**
+dedicated user rather than a person's account (a shared token breaks whatever
+else uses it). That user needs only enough to push documents in via
+`POST /api/documents/post_document/`:
+
+- **Not** staff, **not** superuser.
+- Global permission **`Documents: Add document`** only
+  (Django `documents.add_document`). That is sufficient for the upload endpoint;
+  the uploaded file is queued to the consumer and owned by this user.
+- Optionally also grant `Documents: View document` if you want the account to
+  see what it submitted in the UI — not required for scanning.
+
+Then generate that user's API token (Paperless **Settings → My Profile → API
+Token**, or via the admin) and put it in `PAPERLESS_TOKEN`. Create the user and
+grant the single permission from **Settings → Users & Groups** (or a Group with
+just that permission, with the user as a member).
+
 ## Build & run
 
 ```sh
