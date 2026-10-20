@@ -277,4 +277,51 @@ function applyDefault(groupId, val, setter) {
   setter(String(val));
 }
 
-window.addEventListener("DOMContentLoaded", init);
+/* ---- idle: dim, then blank ----
+ * The panel is an AMOLED on a bare cage compositor (no idle/DPMS protocol), so
+ * "off" is a full-black overlay: black AMOLED pixels draw ~no power and emit no
+ * light. A touch while dimmed/blank only wakes the screen and is swallowed, so
+ * a wake-up tap never presses a button underneath. Never idles mid-scan/send. */
+const IDLE_DIM_MS = 60 * 1000;
+const IDLE_BLANK_MS = 5 * 60 * 1000;
+const idle = { level: "awake", timer: null };
+
+function setIdleLevel(level) {
+  idle.level = level;
+  const el = $("#idle");
+  el.classList.toggle("dim", level === "dim");
+  el.classList.toggle("blank", level === "blank");
+}
+
+function armIdle() {
+  clearTimeout(idle.timer);
+  const dimIn = IDLE_DIM_MS;
+  idle.timer = setTimeout(() => {
+    if (state.scanning || !$("#busy").classList.contains("hidden")) return armIdle();
+    setIdleLevel("dim");
+    idle.timer = setTimeout(() => {
+      if (state.scanning || !$("#busy").classList.contains("hidden")) return armIdle();
+      setIdleLevel("blank");
+    }, IDLE_BLANK_MS - IDLE_DIM_MS);
+  }, dimIn);
+}
+
+function wireIdle() {
+  const wake = (e) => {
+    if (idle.level !== "awake") {
+      e.preventDefault();
+      e.stopPropagation();
+      setIdleLevel("awake");
+    }
+    armIdle();
+  };
+  for (const ev of ["pointerdown", "touchstart", "mousedown", "click", "keydown"]) {
+    window.addEventListener(ev, wake, true);
+  }
+  armIdle();
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  wireIdle();
+  init();
+});
