@@ -154,3 +154,10 @@ body {
   padding: 12px 20px; border-radius: 10px; font-size: 17px; z-index: 20; max-width: 80%;
 }
 .toast.err { background: #1c0b0b; border-color: #c2413a; color: #f7cfc9; }
+
+/* idle: dim, then black out (AMOLED black = pixels off). Sits above everything
+ * and swallows the first touch (see wireIdle in app.js). */
+#idle { position: fixed; inset: 0; z-index: 9999; background: #000; opacity: 0;
+        pointer-events: none; transition: opacity 1.5s ease; }
+#idle.dim { opacity: 0.8; pointer-events: auto; }
+#idle.blank { opacity: 1; pointer-events: auto; transition-duration: 0.5s; }
