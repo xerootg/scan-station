@@ -45,9 +45,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/scanstation-app /usr/local/bin/scanstation-app
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY blank-cursor.sh /tmp/blank-cursor.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh && sh /tmp/blank-cursor.sh && rm /tmp/blank-cursor.sh
 ENV XDG_RUNTIME_DIR=/run/user/0 \
     GDK_BACKEND=wayland \
+    XCURSOR_THEME=blank XCURSOR_PATH=/usr/share/icons XCURSOR_SIZE=24 \
     WEBKIT_DISABLE_COMPOSITING_MODE=1 \
     WEBKIT_DISABLE_DMABUF_RENDERER=1 \
     LANG=C.UTF-8 LC_ALL=C.UTF-8
