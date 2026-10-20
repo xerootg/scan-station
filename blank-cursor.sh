@@ -21,3 +21,10 @@ for n in default arrow pointer hand hand1 hand2 text xterm ibeam watch wait prog
   ln -sf left_ptr "$d/$n"
 done
 printf '[Icon Theme]\nName=blank\nComment=Invisible cursors\n' > /usr/share/icons/blank/index.theme
+
+# The page's GTK/WebKit client loads its OWN cursor from GTK's cursor-theme
+# setting (default theme "default" -> Inherits=Adwaita, i.e. a visible arrow);
+# XCURSOR_THEME only steers cage itself. Point both at the blank theme.
+mkdir -p /usr/share/icons/default /etc/xdg/gtk-3.0
+printf '[Icon Theme]\nInherits=blank\n' > /usr/share/icons/default/index.theme
+printf '[Settings]\ngtk-cursor-theme-name=blank\ngtk-cursor-theme-size=24\n' > /etc/xdg/gtk-3.0/settings.ini
